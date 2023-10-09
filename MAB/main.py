@@ -108,6 +108,43 @@ class DecayingEpsilonGreedy(Solver):
         self.estimates[k] += 1. / (self.counts[k] + 1) * (r - self.estimates[k]) # 更新期望奖励估计值
         return k
 
+class UCB(Solver):
+    """ 最大置信度 UCB 算法, 继承自 Solver 类
+        期望奖励上界 = 期望奖励估值 + c * 不确定性度量
+        不确定性度量 = sqrt(-log p/2N(a_t)+1)
+        期望奖励估值 = 当前求出的期望
+    """
+    def __init__(self, bandit: BernoulliBandit, coef, init_prob=1.0) -> None:
+        super().__init__(bandit)
+        self.total_count = 0 # 记录总的步数, 因为我们的概率p 是随时间衰减的
+        self.estimates = np.ones(self.bandit.K) * init_prob # 初始化每根拉杆的期望奖励估计值
+        self.coef = coef
+        
+    def run_one_step(self) -> int:
+        self.total_count += 1
+        ucb = self.estimates + self.coef * np.sqrt(np.log(self.total_count) / (2 * self.counts + 2)) # 上置信界
+        k = np.argmax(ucb) # 选出上置信界最大的拉杆
+        r = self.bandit.step(k) # 获得奖励
+        self.estimates[k] += 1. / (self.counts[k] + 1) * (r - self.estimates[k]) # 更新期望奖励估计值
+        return k
+
+class ThompsonSampling(Solver):
+    """汤普森采样算法, 继承自Solver类"""
+    def __init__(self, bandit: BernoulliBandit) -> None:
+        super().__init__(bandit)
+        self._a = np.ones(self.bandit.K) # 列表,表示每根拉杆奖励为1的次数
+        self._b = np.ones(self.bandit.K) # 列表,表示每根拉杆奖励为0的次数
+        
+    def run_one_step(self) -> int:
+        samples = np.random.beta(self._a,self._b) # 按照Beta分布采样
+        k = np.argmax(samples)
+        
+        r = self.bandit.step(k) # 获得奖励
+        self._a[k] += r # 更新Beta分布的第一个参数
+        self._b[k] += 1 - r # 更新Beta分布的第二个参数
+        return k
+        
+
 
 def plot_results(solvers: list, solver_names):
     """生成累计懊悔随时间变化的图像,输入solvers是一个列表,每个元素是一种特定的策略
@@ -127,8 +164,6 @@ def BanditAnalyse():
     bandit = BernoulliBandit(K)
     print("随机生成了一个%d臂老虎机"% K)
     print("获奖概率最大的拉杆为%d号, 获奖概率为%.2f" % (bandit.best_idx, bandit.best_prob))
-
-
 
 def EpsilonGreedyAnalyse():
     """分析 Epsilon-Greedy 算法的性能"""
@@ -154,9 +189,31 @@ def DecayingEpsilonGreedyAnalyse():
     print('decaying-epsilon-greedy 的累积懊悔为: ',decaying_epsilon_greedy_solver.regret)
     plot_results([decaying_epsilon_greedy_solver], ["DecayingEpsilonGreedy"])
 
+def UCBAnalyse():
+    """UCB算法分析"""
+    K = 10
+    coefs = [0.1, 0.5, 1, 5]
+    bandit_10_arm = BernoulliBandit(K)
+    UCB_solvers = [UCB(bandit_10_arm, coef) for coef in coefs]
+    UCB_names = ["coef=%.1f" % coef for coef in coefs]
+    for solver in UCB_solvers:
+        solver.run(5000)
+    plot_results(UCB_solvers, UCB_names)
+    
+def ThompsonSamplingAnalyse():
+    """汤普森算法分析"""
+    K = 10
+    bandit_10_arm = BernoulliBandit(K)
+    thompson_sampleing_solver = ThompsonSampling(bandit_10_arm)
+    thompson_sampleing_solver.run(5000)
+    print('thompson-sampleing 的累积懊悔为: ',thompson_sampleing_solver.regret)
+    plot_results([thompson_sampleing_solver], ["ThompsonSampling"])
+    
 
 if __name__ == "__main__":
     np.random.seed(0)
-    #BanditAnalyse()
-    #EpsilonGreedyAnalyse()
-    DecayingEpsilonGreedyAnalyse()
+    # BanditAnalyse()
+    # EpsilonGreedyAnalyse()
+    # DecayingEpsilonGreedyAnalyse()
+    # UCBAnalyse()
+    ThompsonSamplingAnalyse()
